@@ -180,7 +180,7 @@ unsafe fn resolve_attack_type_offset(class: Il2CppClass) -> Result<usize> {
     const NCJILFFNINI_ATTACK_TYPE_OFFSET: usize = 0x4c0;
     const NCJILFFNINI_ATTACK_TYPE_FIELD_NAME: &str = "JLCBDNLOHGI";
 
-    let class_name = class.name();
+    let class_name = class.qualified_name();
     let field_iter: *const c_void = null();
     loop {
         let field = il2cpp_class_get_fields(class, &field_iter);
@@ -919,6 +919,7 @@ pub fn on_direct_damage_hp(
     a3: *const c_void,
     a4: RPG_GameCore_FixPoint,
     a5: *const c_void,
+    a6: i32,
 ) {
 
     let hp_before_raw = unsafe { instance.get_property(RPG_GameCore_AbilityProperty::CurrentHP) }
@@ -926,7 +927,7 @@ pub fn on_direct_damage_hp(
         .map(|fp| fixpoint_to_raw(&fp))
         .unwrap_or(0.0);
 
-    let res = ON_DIRECT_DAMAGE_HP_Detour.call(instance, a1, a2, a3, a4, a5);
+    let res = ON_DIRECT_DAMAGE_HP_Detour.call(instance, a1, a2, a3, a4, a5, a6);
 
     let hp_after_raw = unsafe { instance.get_property(RPG_GameCore_AbilityProperty::CurrentHP) }
         .ok()
@@ -1234,7 +1235,7 @@ unsafe fn resolve_defeated_entity_offset() -> Result<EntityDefeatedOffsets> {
         return Err(anyhow!(
             "Failed to match defeated entity field offset {:#x} against {} fields",
             defeated_entity_offset,
-            class.name()
+            class.qualified_name()
         ));
     }
 
@@ -1379,7 +1380,7 @@ retour::static_detour! {
     static ON_UPDATE_WAVE_Detour: fn(RPG_GameCore_TurnBasedGameMode);
     static ON_UPDATE_CYCLE_Detour: fn(RPG_GameCore_TurnBasedGameMode) -> u32;
     static ON_DIRECT_CHANGE_HP_Detour: fn(RPG_GameCore_TurnBasedAbilityComponent, i32, RPG_GameCore_FixPoint, *const c_void);
-    static ON_DIRECT_DAMAGE_HP_Detour: fn(RPG_GameCore_TurnBasedAbilityComponent, RPG_GameCore_FixPoint, i32, *const c_void, RPG_GameCore_FixPoint, *const c_void);
+    static ON_DIRECT_DAMAGE_HP_Detour: fn(RPG_GameCore_TurnBasedAbilityComponent, RPG_GameCore_FixPoint, i32, *const c_void, RPG_GameCore_FixPoint, *const c_void, i32);
     static ON_STAT_CHANGE_Detour: fn(RPG_GameCore_TurnBasedAbilityComponent, RPG_GameCore_AbilityProperty, i32, RPG_GameCore_FixPoint, *const c_void) -> bool;
     static ON_ENTITY_DEFEATED_Detour: fn(RPG_GameCore_TurnBasedGameMode, *const c_void) -> bool;
     static ON_UPDATE_TEAM_FORMATION_Detour: fn(RPG_GameCore_TeamFormationComponent);
@@ -1563,7 +1564,8 @@ pub fn subscribe() -> Result<()> {
                         "RPG.GameCore.AntiLockHPStrength",
                         "*",
                         "RPG.GameCore.FixPoint&",
-                        "System.Nullable<RPG.GameCore.FixPoint>"
+                        "System.Nullable<RPG.GameCore.FixPoint>",
+                        "RPG.GameCore.DamageIntegerizeCategory"
                     ],
                 )?
                 .va(),

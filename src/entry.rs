@@ -202,6 +202,7 @@ fn setup_subscribers() -> anyhow::Result<()> {
             il2cpp_class_get_namespace: 39,
             il2cpp_class_get_parent: 40,
             il2cpp_class_from_type: 49,
+            il2cpp_class_get_type: 51,
             il2cpp_domain_get: 63,
             il2cpp_domain_get_assemblies: 65,
             il2cpp_field_get_name: 73,
@@ -218,9 +219,13 @@ fn setup_subscribers() -> anyhow::Result<()> {
             il2cpp_image_get_class_count: 169,
             il2cpp_image_get_class: 170,
         };
+        log::info!("Resolving IL2CPP API table");
         let api_table_offset = get_il2cpp_table_offset().context("Failed to resolve IL2CPP API table")?;
+        log::info!("Initializing IL2CPP runtime");
         il2cpp_runtime::init(api_table_offset, table).context("Failed to initialize IL2CPP runtime")?;
+        log::info!("Registering battle subscriber hooks");
         subscribers::battle::subscribe().context("Failed to register battle subscriber hooks")?;
+        log::info!("Enabling subscriber hooks");
         subscribers::enable_subscribers!().context("Failed to register subscriber hooks")?;
         Ok(())
     }

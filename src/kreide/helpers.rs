@@ -36,8 +36,8 @@ unsafe fn get_component_by_name(
     entity: RPG_GameCore_GameEntity,
     type_name: &str,
 ) -> Result<RPG_GameCore_GameComponentBase> {
-    let class = get_cached_class(type_name)?;
-    Ok(unsafe { entity.get_component_by_type_handle(class.byval_arg())? })
+    let runtime_type = System_RuntimeType::from_name(type_name)?;
+    Ok(unsafe { entity.get_component(runtime_type)? })
 }
 
 pub fn get_textmap_content(hash: &RPG_Client_TextID) -> Result<String> {
