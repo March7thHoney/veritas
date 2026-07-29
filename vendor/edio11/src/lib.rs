@@ -7,26 +7,24 @@ use std::{mem, sync::Once};
 
 use arboard::{Clipboard, ImageData};
 use backup::BackupState;
-use egui::{Context, Memory, PlatformOutput, RawInput, Vec2, gui_zoom::kb_shortcuts};
+use egui::{Context, Memory, PlatformOutput, RawInput, gui_zoom::kb_shortcuts};
 use errors::OverlayError;
 use input::{InputHandler, InputResult};
 use retour::static_detour;
 use windows::core::HSTRING;
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         Graphics::{
             Direct3D11::{
                 D3D11_TEXTURE2D_DESC, ID3D11Device, ID3D11DeviceContext, ID3D11RenderTargetView,
                 ID3D11Texture2D,
             },
             Dxgi::{Common::DXGI_FORMAT, DXGI_PRESENT, IDXGISwapChain, IDXGISwapChain_Vtbl},
-            Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow},
         },
         UI::{
             Input::Pointer::EnableMouseInPointer,
-            Shell::GetScaleFactorForMonitor,
-            WindowsAndMessaging::{GWLP_WNDPROC, GetClientRect, SetWindowLongPtrW, WM_CLOSE},
+            WindowsAndMessaging::{GWLP_WNDPROC, SetWindowLongPtrW, WM_CLOSE},
         },
     },
     core::HRESULT,
@@ -222,60 +220,15 @@ impl<T: Overlay + ?Sized> OverlayHandler<T> {
     pub fn present(&mut self) {
         if let Some(inner) = &mut self.inner {
             if let Some(render_target) = &inner.render_target {
-                let pixels_per_point = unsafe {
-                    let monitor = MonitorFromWindow(inner.hwnd, MONITOR_DEFAULTTONEAREST);
-
-                    // Scale
-                    let scale_factor = match GetScaleFactorForMonitor(monitor) {
-                        Ok(s) => s.0 / 100,
-                        Err(e) => {
-                            log::warn!(
-                                "GetScaleFactorForMonitor failed: {:?}. Defaulting to 100.",
-                                e
-                            );
-                            100
-                        }
-                    };
-
-                    // Screen Size
-                    let mut monitor_info = MONITORINFO {
-                        cbSize: size_of::<MONITORINFO>() as _,
-                        ..Default::default()
-                    };
-                    if unsafe { GetMonitorInfoW(monitor, &mut monitor_info) }.as_bool() == false {
-                        let e = windows::core::Error::from_win32();
-                        log::warn!("GetMonitorInfoW failed: {:?}", e);
-                    }
-                    let width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
-                    let height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
-                    let screen_size = Vec2::new(width as f32, height as f32);
-
-                    // Window Size
-                    let mut rect = RECT::default();
-                    if let Err(e) = unsafe { GetClientRect(inner.hwnd, &mut rect) } {
-                        log::warn!("GetClientRect failed: {:?}", e);
-                    }
-
-                    let window_size = Vec2::new(
-                        (rect.right - rect.left) as f32,
-                        (rect.bottom - rect.top) as f32,
-                    );
-
-                    let res_scale = window_size.length() / screen_size.length();
-                    scale_factor as f32 * res_scale
-                };
-
-                if pixels_per_point > 0.0 {
-                    self.egui_ctx
-                        .set_pixels_per_point(pixels_per_point * self.zoom_factor);
-                }
+                let dpi_ppp = InputHandler::get_pixels_per_point(inner.hwnd);
+                let effective_ppp = dpi_ppp * self.zoom_factor;
+                self.egui_ctx.set_zoom_factor(self.zoom_factor);
 
                 let egui_output = self
                     .egui_ctx
-                    .run(inner.input_handler.collect_input(), |ctx| {
+                    .run(inner.input_handler.collect_input(dpi_ppp, effective_ppp), |ctx| {
                         if ctx.input_mut(|i| i.consume_shortcut(&kb_shortcuts::ZOOM_RESET)) {
                             self.zoom_factor = 1.0;
-                            self.egui_ctx.set_zoom_factor(self.zoom_factor);
                         } else {
                             if ctx.input_mut(|i| i.consume_shortcut(&kb_shortcuts::ZOOM_IN))
                                 || ctx.input_mut(|i| {
@@ -286,14 +239,12 @@ impl<T: Overlay + ?Sized> OverlayHandler<T> {
                                 self.zoom_factor =
                                     self.zoom_factor.clamp(MIN_ZOOM_FACTOR, MAX_ZOOM_FACTOR);
                                 self.zoom_factor = (self.zoom_factor * 10.).round() / 10.;
-                                self.egui_ctx.set_zoom_factor(self.zoom_factor);
                             }
                             if ctx.input_mut(|i| i.consume_shortcut(&kb_shortcuts::ZOOM_OUT)) {
                                 self.zoom_factor -= 0.1;
                                 self.zoom_factor =
                                     self.zoom_factor.clamp(MIN_ZOOM_FACTOR, MAX_ZOOM_FACTOR);
                                 self.zoom_factor = (self.zoom_factor * 10.).round() / 10.;
-                                self.egui_ctx.set_zoom_factor(self.zoom_factor);
                             }
                         }
 
@@ -311,7 +262,7 @@ impl<T: Overlay + ?Sized> OverlayHandler<T> {
                     &render_target,
                     &self.egui_ctx,
                     renderer_output,
-                    1.0,
+                    dpi_ppp,
                 );
 
                 self.backup.restore(&inner.device_context);
@@ -589,7 +540,7 @@ pub fn set_overlay_with_zoom(
             });
 
             let overlay = overlay_creator.call_once((egui_ctx.clone(),));
-            if let Err(e) = EnableMouseInPointer(true) {
+            if let Err(e) = EnableMouseInPointer(InputHandler::pointer_input_enabled()) {
                 log::warn!("EnableMouseInPointer failed: {:?}", e);
             }
 

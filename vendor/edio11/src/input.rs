@@ -2,16 +2,13 @@
 use arboard::Clipboard;
 use egui::{
     Context, Event, Key, Modifiers, MouseWheelUnit, PointerButton, Pos2, RawInput, Rect, Theme,
-    TouchId, Vec2,
+    TouchId, Vec2, ViewportId,
 };
 use windows::{
     Wdk::System::SystemInformation::NtQuerySystemTime,
     Win32::{
-        Foundation::{HWND, RECT},
-        Graphics::Gdi::{
-            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
-            ScreenToClient,
-        },
+        Foundation::{HWND, POINT, RECT},
+        Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST, ScreenToClient},
         System::SystemServices::{MK_CONTROL, MK_SHIFT},
         UI::{
             Input::{
@@ -27,12 +24,12 @@ use windows::{
             },
             Shell::GetScaleFactorForMonitor,
             WindowsAndMessaging::{
-                GetClientRect, GetMessageExtraInfo, KF_REPEAT, PT_MOUSE, PT_TOUCH, WHEEL_DELTA,
-                WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-                WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
-                WM_MOUSEWHEEL, WM_NCMOUSEMOVE, WM_POINTERDOWN, WM_POINTERUP, WM_POINTERUPDATE,
-                WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
-                WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1, XBUTTON2,
+                GetClientRect, GetCursorPos, GetMessageExtraInfo, KF_REPEAT, PT_MOUSE, PT_TOUCH,
+                WHEEL_DELTA, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
+                WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
+                WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCMOUSEMOVE, WM_POINTERDOWN, WM_POINTERUP,
+                WM_POINTERUPDATE, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN,
+                WM_SYSKEYUP, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1, XBUTTON2,
             },
         },
     },
@@ -43,6 +40,12 @@ pub struct InputHandler {
     pub hwnd: HWND,
     pub events: Vec<Event>,
     pub modifiers: Option<Modifiers>,
+    pub pointer_input_enabled: bool,
+    relative_drag_enabled: bool,
+    primary_button_down: bool,
+    last_mouse_pos_px: Option<Pos2>,
+    virtual_mouse_pos: Option<Pos2>,
+    drag_warp_anchor_px: Option<Pos2>,
 }
 
 /// High-level overview of recognized `WndProc` messages.
@@ -78,12 +81,26 @@ impl InputHandler {
             hwnd,
             events: vec![],
             modifiers: None,
+            pointer_input_enabled: Self::pointer_input_enabled(),
+            relative_drag_enabled: Self::evernight_input_workaround_enabled(),
+            primary_button_down: false,
+            last_mouse_pos_px: None,
+            virtual_mouse_pos: None,
+            drag_warp_anchor_px: None,
         }
+    }
+
+    fn evernight_input_workaround_enabled() -> bool {
+        std::env::var_os("EVERNIGHT_PATCH_UI_SCALE").is_some()
+    }
+
+    pub fn pointer_input_enabled() -> bool {
+        !Self::evernight_input_workaround_enabled()
     }
 
     pub fn process(&mut self, umsg: u32, wparam: usize, lparam: isize) -> InputResult {
         match umsg {
-            WM_POINTERUPDATE => {
+            WM_POINTERUPDATE if self.pointer_input_enabled => {
                 let mut pointer_info = POINTER_INFO::default();
                 let pointer_id = wparam as u32 & 0xFFFF;
                 unsafe {
@@ -106,7 +123,7 @@ impl InputHandler {
                     InputResult::MouseMove
                 }
             }
-            WM_POINTERDOWN | WM_POINTERUP => {
+            WM_POINTERDOWN | WM_POINTERUP if self.pointer_input_enabled => {
                 let mut pointer_info = POINTER_INFO::default();
                 let pointer_id = wparam as u32 & 0xFFFF;
                 unsafe {
@@ -172,10 +189,20 @@ impl InputHandler {
                     }
                 }
             }
+            WM_POINTERUPDATE | WM_POINTERDOWN | WM_POINTERUP => {
+                if self.relative_drag_enabled {
+                    log::debug!(
+                        "Evernight drag trace: ignored pointer message={umsg:#06x} wparam={wparam:#x} lparam={lparam:#x}"
+                    );
+                }
+                InputResult::Unknown
+            }
             WM_MOUSEMOVE | WM_NCMOUSEMOVE => {
                 self.alter_modifiers(get_mouse_modifiers(wparam));
 
-                self.events.push(Event::PointerMoved(self.get_pos(lparam)));
+                if let Some(pos) = self.mouse_move_pos(lparam) {
+                    self.events.push(Event::PointerMoved(pos));
+                }
                 InputResult::MouseMove
             }
             msg @ (WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONDBLCLK
@@ -206,8 +233,26 @@ impl InputHandler {
                     _ => unreachable!(),
                 };
 
+                if button == PointerButton::Primary
+                    && self.relative_drag_enabled
+                    && self.primary_button_down
+                {
+                    if let Some(pos) =
+                        self.update_relative_drag(Self::get_pos_px(lparam), true, "repeat-down")
+                    {
+                        self.events.push(Event::PointerMoved(pos));
+                    }
+                    return InputResult::MouseMove;
+                }
+
+                let pos = if button == PointerButton::Primary && self.relative_drag_enabled {
+                    self.begin_relative_drag(lparam)
+                } else {
+                    self.get_pos(lparam)
+                };
+
                 self.events.push(Event::PointerButton {
-                    pos: self.get_pos(lparam),
+                    pos,
                     button,
                     pressed: true,
                     modifiers,
@@ -237,8 +282,19 @@ impl InputHandler {
                     _ => unreachable!(),
                 };
 
+                let pos = if button == PointerButton::Primary && self.relative_drag_enabled {
+                    if let Some(pos) =
+                        self.update_relative_drag(Self::get_pos_px(lparam), true, "button-up")
+                    {
+                        self.events.push(Event::PointerMoved(pos));
+                    }
+                    self.end_relative_drag(lparam)
+                } else {
+                    self.get_pos(lparam)
+                };
+
                 self.events.push(Event::PointerButton {
-                    pos: self.get_pos(lparam),
+                    pos,
                     button,
                     pressed: false,
                     modifiers,
@@ -344,16 +400,37 @@ impl InputHandler {
         }
     }
 
-    pub fn collect_input(&mut self) -> RawInput {
-        RawInput {
+    pub fn collect_input(&mut self, native_ppp: f32, effective_ppp: f32) -> RawInput {
+        if let Some(pos) = self.poll_drag_position() {
+            self.events.push(Event::PointerMoved(pos));
+        }
+
+        let mut rect = RECT::default();
+        unsafe {
+            GetClientRect(self.hwnd, &mut rect).unwrap();
+        }
+        let physical_size = Vec2::new(
+            (rect.right - rect.left) as f32,
+            (rect.bottom - rect.top) as f32,
+        );
+
+        let mut raw_input = RawInput {
             modifiers: self.modifiers.unwrap_or_default(),
             events: self.events.drain(..).collect::<Vec<Event>>(),
-            screen_rect: Some(self.get_window_rect()),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, physical_size / effective_ppp)),
             time: Some(Self::get_system_time()),
             system_theme: Self::get_system_theme(),
             focused: true,
             ..Default::default()
-        }
+        };
+
+        raw_input
+            .viewports
+            .entry(ViewportId::ROOT)
+            .or_default()
+            .native_pixels_per_point = Some(native_ppp);
+
+        raw_input
     }
 
     /// Returns time in seconds.
@@ -382,6 +459,23 @@ impl InputHandler {
     }
 
     #[inline]
+    pub fn get_pixels_per_point(hwnd: HWND) -> f32 {
+        let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+
+        match unsafe { GetScaleFactorForMonitor(monitor) } {
+            Ok(scale) if scale.0 > 0 => scale.0 as f32 / 100.0,
+            Ok(_) => 1.0,
+            Err(err) => {
+                log::warn!(
+                    "GetScaleFactorForMonitor failed: {:?}. Defaulting pixels_per_point to 1.0.",
+                    err
+                );
+                1.0
+            }
+        }
+    }
+
+    #[inline]
     pub fn get_window_size(&self) -> Vec2 {
         let mut rect = RECT::default();
         unsafe {
@@ -404,11 +498,145 @@ impl InputHandler {
     }
 
     fn get_pos(&self, lparam: isize) -> Pos2 {
+        Self::get_pos_px(lparam) / self.ctx.pixels_per_point()
+    }
+
+    fn get_pos_px(lparam: isize) -> Pos2 {
         let x = (lparam & 0xFFFF) as i16 as f32;
         let y = (lparam >> 16 & 0xFFFF) as i16 as f32;
 
-        // Divide by scale
-        Pos2::new(x, y) / self.ctx.pixels_per_point()
+        Pos2::new(x, y)
+    }
+
+    fn mouse_move_pos(&mut self, lparam: isize) -> Option<Pos2> {
+        let current_px = Self::get_pos_px(lparam);
+        if !self.relative_drag_enabled || !self.primary_button_down {
+            let pos = current_px / self.ctx.pixels_per_point();
+            self.last_mouse_pos_px = Some(current_px);
+            self.virtual_mouse_pos = Some(pos);
+            self.drag_warp_anchor_px = None;
+            return Some(pos);
+        }
+
+        self.update_relative_drag(current_px, false, "message")
+    }
+
+    fn poll_drag_position(&mut self) -> Option<Pos2> {
+        if !self.relative_drag_enabled || !self.primary_button_down {
+            return None;
+        }
+
+        let mut point = POINT::default();
+        if unsafe { GetCursorPos(&mut point) }.is_err()
+            || !unsafe { ScreenToClient(self.hwnd, &mut point) }.as_bool()
+        {
+            return None;
+        }
+
+        self.update_relative_drag(
+            Pos2::new(point.x as f32, point.y as f32),
+            false,
+            "frame-poll",
+        )
+    }
+
+    fn update_relative_drag(
+        &mut self,
+        current_px: Pos2,
+        accept_large_delta: bool,
+        source: &str,
+    ) -> Option<Pos2> {
+        let previous_px = self.last_mouse_pos_px.replace(current_px)?;
+        let pixels_per_point = self.ctx.pixels_per_point().max(f32::EPSILON);
+        let delta_px = current_px - previous_px;
+        if delta_px.x.abs() < 0.5 && delta_px.y.abs() < 0.5 {
+            return None;
+        }
+        let tolerance_px = 2.0 * pixels_per_point;
+
+        if let Some(anchor_px) = self.drag_warp_anchor_px {
+            let anchor_delta = current_px - anchor_px;
+            if anchor_delta.x.abs() <= tolerance_px && anchor_delta.y.abs() <= tolerance_px {
+                log::debug!(
+                    "Evernight drag trace: anchor source={} raw=({:.1},{:.1}) delta=({:.1},{:.1}) ppp={:.3}",
+                    source,
+                    current_px.x,
+                    current_px.y,
+                    delta_px.x,
+                    delta_px.y,
+                    pixels_per_point
+                );
+                return None;
+            }
+        }
+
+        let jump_threshold_px = 96.0 * pixels_per_point;
+        if !accept_large_delta
+            && (delta_px.x.abs() > jump_threshold_px || delta_px.y.abs() > jump_threshold_px)
+        {
+            self.drag_warp_anchor_px = Some(current_px);
+            log::debug!(
+                "Evernight drag trace: jump source={} raw=({:.1},{:.1}) delta=({:.1},{:.1}) ppp={:.3}",
+                source,
+                current_px.x,
+                current_px.y,
+                delta_px.x,
+                delta_px.y,
+                pixels_per_point
+            );
+            return None;
+        }
+
+        let pos = self.virtual_mouse_pos.unwrap_or(current_px / pixels_per_point)
+            + delta_px / pixels_per_point;
+        self.virtual_mouse_pos = Some(pos);
+        log::debug!(
+            "Evernight drag trace: move source={} raw=({:.1},{:.1}) delta=({:.1},{:.1}) virtual=({:.1},{:.1}) ppp={:.3}",
+            source,
+            current_px.x,
+            current_px.y,
+            delta_px.x,
+            delta_px.y,
+            pos.x,
+            pos.y,
+            pixels_per_point
+        );
+        Some(pos)
+    }
+
+    fn begin_relative_drag(&mut self, lparam: isize) -> Pos2 {
+        let pos_px = Self::get_pos_px(lparam);
+        let pos = pos_px / self.ctx.pixels_per_point();
+        self.primary_button_down = true;
+        self.last_mouse_pos_px = Some(pos_px);
+        self.virtual_mouse_pos = Some(pos);
+        self.drag_warp_anchor_px = Some(pos_px);
+        log::info!(
+            "Evernight drag trace: begin raw=({:.1},{:.1}) logical=({:.1},{:.1}) ppp={:.3}",
+            pos_px.x,
+            pos_px.y,
+            pos.x,
+            pos.y,
+            self.ctx.pixels_per_point()
+        );
+        pos
+    }
+
+    fn end_relative_drag(&mut self, lparam: isize) -> Pos2 {
+        let pos = self.virtual_mouse_pos.unwrap_or_else(|| self.get_pos(lparam));
+        self.primary_button_down = false;
+        self.last_mouse_pos_px = Some(Self::get_pos_px(lparam));
+        self.virtual_mouse_pos = Some(pos);
+        self.drag_warp_anchor_px = None;
+        log::info!(
+            "Evernight drag trace: end raw=({:.1},{:.1}) logical=({:.1},{:.1}) ppp={:.3}",
+            Self::get_pos_px(lparam).x,
+            Self::get_pos_px(lparam).y,
+            pos.x,
+            pos.y,
+            self.ctx.pixels_per_point()
+        );
+        pos
     }
 }
 
