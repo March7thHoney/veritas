@@ -251,6 +251,11 @@ impl<T: Overlay + ?Sized> OverlayHandler<T> {
                         self.overlay.update(ctx);
                     });
 
+                if inner.input_handler.take_save_request() {
+                    self.egui_ctx
+                        .memory_mut(|writer| self.overlay.save(writer));
+                }
+
                 self.backup.save(&inner.device_context);
 
                 let (renderer_output, platform_output, _) =

@@ -46,6 +46,8 @@ pub struct InputHandler {
     last_mouse_pos_px: Option<Pos2>,
     virtual_mouse_pos: Option<Pos2>,
     drag_warp_anchor_px: Option<Pos2>,
+    save_on_primary_release: bool,
+    save_requested: bool,
 }
 
 /// High-level overview of recognized `WndProc` messages.
@@ -87,6 +89,8 @@ impl InputHandler {
             last_mouse_pos_px: None,
             virtual_mouse_pos: None,
             drag_warp_anchor_px: None,
+            save_on_primary_release: false,
+            save_requested: false,
         }
     }
 
@@ -159,6 +163,15 @@ impl InputHandler {
                         pressed,
                         modifiers,
                     });
+                    if button == PointerButton::Primary {
+                        if pressed {
+                            self.save_on_primary_release = self.ctx.is_pointer_over_area()
+                                || self.ctx.is_using_pointer();
+                        } else {
+                            self.save_requested |= self.save_on_primary_release;
+                            self.save_on_primary_release = false;
+                        }
+                    }
 
                     if pointer_info.pointerType == PT_TOUCH {
                         if !pressed {
@@ -250,6 +263,10 @@ impl InputHandler {
                 } else {
                     self.get_pos(lparam)
                 };
+                if button == PointerButton::Primary {
+                    self.save_on_primary_release =
+                        self.ctx.is_pointer_over_area() || self.ctx.is_using_pointer();
+                }
 
                 self.events.push(Event::PointerButton {
                     pos,
@@ -299,6 +316,10 @@ impl InputHandler {
                     pressed: false,
                     modifiers,
                 });
+                if button == PointerButton::Primary {
+                    self.save_requested |= self.save_on_primary_release;
+                    self.save_on_primary_release = false;
+                }
 
                 result
             }
@@ -431,6 +452,12 @@ impl InputHandler {
             .native_pixels_per_point = Some(native_ppp);
 
         raw_input
+    }
+
+    pub fn take_save_request(&mut self) -> bool {
+        let requested = self.save_requested;
+        self.save_requested = false;
+        requested
     }
 
     /// Returns time in seconds.
