@@ -193,3 +193,4 @@ cython_debug/
 .cursorindexingignore
 AGENTS.md
 CLAUDE.md
+.vscode/

@@ -17,10 +17,6 @@ pub struct Config {
     // pub fps: i32,
     #[serde(default = "default_widget_opacity")]
     pub widget_opacity: f32,
-    #[serde(default = "default_streamer_mode")]
-    pub streamer_mode: bool,
-    #[serde(default = "default_streamer_msg")]
-    pub streamer_msg: String,
     #[serde(default = "default_font_sizes")]
     pub font_sizes: BTreeMap<egui::TextStyle, FontId>,
     #[serde(default = "default_theme")]
@@ -51,14 +47,6 @@ fn default_locale() -> String {
 
 fn default_widget_opacity() -> f32 {
     0.30
-}
-
-fn default_streamer_mode() -> bool {
-    true
-}
-
-fn default_streamer_msg() -> String {
-    env!("CARGO_PKG_NAME").to_string()
 }
 
 fn default_theme() -> egui_colors::Theme {
@@ -96,8 +84,6 @@ impl Default for Config {
             locale: default_locale(),
             // fps: 60,
             widget_opacity: default_widget_opacity(),
-            streamer_mode: default_streamer_mode(),
-            streamer_msg: default_streamer_msg(),
             theme: default_theme(),
             theme_mode: default_theme_mode(),
             font_sizes: default_font_sizes(),

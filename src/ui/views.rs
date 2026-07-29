@@ -1,4 +1,4 @@
-use egui::{Slider, TextEdit, Ui};
+use egui::{Slider, Ui};
 use egui::{CentralPanel, CollapsingHeader, Color32, Frame, Label, Memory, RichText, ScrollArea, Window};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use anyhow::anyhow;
@@ -532,15 +532,6 @@ impl App {
                     }
                 },
             );
-
-            ui.toggle_value(
-                &mut self.config.streamer_mode,
-                RichText::new(format!(
-                    "{} {}",
-                    egui_phosphor::bold::VIDEO_CAMERA,
-                    t!("Streamer Mode")
-                )),
-            );
         });
 
         ui.separator();
@@ -650,16 +641,6 @@ impl App {
             //         )
             //     };
             // }
-
-            ui.add(
-                TextEdit::singleline(&mut self.config.streamer_msg).hint_text(RichText::new(
-                    format!(
-                        "{} {}",
-                        t!("Streamer Message. Can also use Phosphor Icons!"),
-                        egui_phosphor::bold::RAINBOW
-                    ),
-                )),
-            );
         });
     }
 

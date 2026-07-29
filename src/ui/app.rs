@@ -7,10 +7,8 @@ use directories::ProjectDirs;
 use edio11::{Overlay, WindowMessage, WindowProcessOptions, input::InputResult};
 use egui::Key;
 use egui::KeyboardShortcut;
-use egui::Label;
 use egui::Memory;
 use egui::Modifiers;
-use egui::RichText;
 use egui::Ui;
 use egui::UiBuilder;
 use egui::{
@@ -144,18 +142,6 @@ impl Overlay for App {
 
         if self.state.show_help {
             self.show_help_window(ctx);
-        }
-
-        if self.config.streamer_mode {
-            egui::TopBottomPanel::bottom("statusbar")
-                .resizable(true)
-                .show(ctx, |ui| {
-                    ui.style_mut().override_text_style = Some(egui::TextStyle::Body);
-                    let label = Label::new(RichText::new(&self.config.streamer_msg).strong())
-                        .selectable(false);
-                    ui.add(label);
-                    ui.allocate_space(ui.available_size())
-                });
         }
 
         if !self.state.should_hide {

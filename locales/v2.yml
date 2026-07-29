@@ -95,19 +95,6 @@
   vi: Giá trị Hành động
   zh: 行动值
   pl: Wartość akcji
-5GO7e8eMF5Et:
-  de: Nachricht des Streamers. Kann auch Phosphor-Symbole verwenden!
-  en: Streamer Message. Can also use Phosphor Icons!
-  es: Mensaje del streamer. ¡También se pueden usar iconos de Phosphor!
-  fr: Message du streamer. Peut également utiliser des icônes Phosphor !
-  it: Messaggio del streamer. È possibile utilizzare anche le icone Phosphor!
-  ja: ストリーマーメッセージ。フォスフォールアイコンも使用可能！
-  nl: Streamerbericht. Kan ook Phosphor-iconen gebruiken!
-  pl: Wiadomość streamera. Można również używać ikon Phosphor!
-  pt: Mensagem do streamer. Também pode usar ícones Phosphor!
-  ru: Сообщение стримера. Можно также использовать иконки Phosphor!
-  vi: Thông báo của người phát trực tuyến. Cũng có thể sử dụng biểu tượng Phosphor!
-  zh: 直播消息。也可以使用磷符号！
 5zdr2cUtiZxG:
   en: Total Damage
   fr: Dommages totaux
@@ -205,20 +192,6 @@
   vi: Hiển thị nhật ký
   zh: 显示日志
   pl: Pokaż dzienniki
-7azkmE7n7RQb:
-  en: Streamer Mode
-  fr: Mode streamer
-  es: Modo streamer
-  de: Streamer-Modus
-  it: Modalità streamer
-  ja: ストリーモード
-  pt: Modo streamer
-  nl: Streamer-modus
-  ru: Режим стримера
-  # ar: وضع البث المباشر
-  vi: Chế độ phát trực tiếp
-  zh: 直播模式
-  pl: Tryb streamera
 Close:
   en: Close
   fr: Fermer
