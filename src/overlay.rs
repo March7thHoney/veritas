@@ -231,8 +231,10 @@ pub fn get_vtable() -> Result<Box<[usize; 205]>> {
 
 pub fn initialize(toasts: Vec<Toast>) -> Result<()> {
     let vtable = get_vtable()?;
+    let ui_scale_value = std::env::var("EVERNIGHT_PATCH_UI_SCALE").ok();
+    let ui_scale = parse_patch_ui_scale(ui_scale_value.as_deref());
     unsafe {
-        edio11::set_overlay(
+        edio11::set_overlay_with_zoom(
             Box::new(|ctx| {
                 let mut app = Box::new(App::new(ctx.clone()));
                 for mut toast in toasts {
@@ -243,7 +245,32 @@ pub fn initialize(toasts: Vec<Toast>) -> Result<()> {
             }),
             mem::transmute(vtable[8]),
             mem::transmute(vtable[13]),
+            ui_scale,
         )?;
         Ok(())
+    }
+}
+
+fn parse_patch_ui_scale(value: Option<&str>) -> f32 {
+    value
+        .and_then(|raw| raw.parse::<f32>().ok())
+        .filter(|scale| scale.is_finite())
+        .map(|scale| scale.clamp(1.0, 2.5))
+        .unwrap_or(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_patch_ui_scale;
+
+    #[test]
+    fn parses_patch_ui_scale() {
+        assert_eq!(parse_patch_ui_scale(None), 1.0);
+        assert_eq!(parse_patch_ui_scale(Some("invalid")), 1.0);
+        assert_eq!(parse_patch_ui_scale(Some("1.0")), 1.0);
+        assert_eq!(parse_patch_ui_scale(Some("2.0")), 2.0);
+        assert_eq!(parse_patch_ui_scale(Some("2.5")), 2.5);
+        assert_eq!(parse_patch_ui_scale(Some("0.5")), 1.0);
+        assert_eq!(parse_patch_ui_scale(Some("3.0")), 2.5);
     }
 }
