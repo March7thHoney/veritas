@@ -6,6 +6,12 @@
 # Supported Targets
 - Windows
 
+# Build on macOS
+```sh
+bash build-macos.sh
+```
+Output: `target/x86_64-pc-windows-msvc/release/veritas.dll`
+
 # Maintainers
 - [Hessiser](https://github.com/hessiser/) (Backend/UI/Misc)
 - [NightKoneko](https://github.com/NightKoneko/) (UI/Misc)
